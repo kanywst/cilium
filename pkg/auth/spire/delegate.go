@@ -51,10 +51,15 @@ type SpireDelegateClient struct {
 	connectedMutex   lock.RWMutex
 }
 
+// defaultMaxGRPCMsgSize is the default max gRPC message size for SPIRE
+// Delegate API calls. This is set to 20MB to handle large trust bundles.
+const defaultMaxGRPCMsgSize = 20 * 1024 * 1024 // 20MB
+
 type SpireDelegateConfig struct {
 	SpireAdminSocketPath string `mapstructure:"mesh-auth-spire-admin-socket"`
 	SpiffeTrustDomain    string `mapstructure:"mesh-auth-spiffe-trust-domain"`
 	RotatedQueueSize     int    `mapstructure:"mesh-auth-rotated-identities-queue-size"`
+	MaxGRPCMsgSize       int    `mapstructure:"mesh-auth-spire-max-grpc-msg-size"`
 }
 
 var Cell = cell.Module(
@@ -86,6 +91,7 @@ func (cfg SpireDelegateConfig) Flags(flags *pflag.FlagSet) {
 	flags.StringVar(&cfg.SpireAdminSocketPath, "mesh-auth-spire-admin-socket", "", "The path for the SPIRE admin agent Unix socket.") // default is /run/spire/sockets/admin.sock
 	flags.StringVar(&cfg.SpiffeTrustDomain, "mesh-auth-spiffe-trust-domain", "spiffe.cilium", "The trust domain for the SPIFFE identity.")
 	flags.IntVar(&cfg.RotatedQueueSize, "mesh-auth-rotated-identities-queue-size", 1024, "The size of the queue for signaling rotated identities.")
+	flags.IntVar(&cfg.MaxGRPCMsgSize, "mesh-auth-spire-max-grpc-msg-size", defaultMaxGRPCMsgSize, "Max gRPC message size in bytes for SPIRE Delegate API calls.")
 }
 
 func (s *SpireDelegateClient) onStart(ctx cell.HookContext) error {
@@ -321,8 +327,8 @@ func (s *SpireDelegateClient) initWatcher(ctx context.Context) (delegatedidentit
 
 	conn, err := grpc.NewClient(unixPath, grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(20*1024*1024),
-			grpc.MaxCallSendMsgSize(20*1024*1024))) // setting this to 20MB to handle large bundles TODO: improve this once fixed upstream (https://github.com/cilium/cilium/issues/24297)
+			grpc.MaxCallRecvMsgSize(s.cfg.MaxGRPCMsgSize),
+			grpc.MaxCallSendMsgSize(s.cfg.MaxGRPCMsgSize)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc.Dial() failed on %s: %w", unixPath, err)
 	}
